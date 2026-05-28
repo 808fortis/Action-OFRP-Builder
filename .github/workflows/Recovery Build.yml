@@ -20,10 +20,10 @@ jobs:
 
     - name: Install dependencies
       run: |
-        # Mengaktifkan arsitektur i386 untuk beberapa pustaka 32-bit (bila diperlukan)
+        # Aktifkan arsitektur i386 untuk pustaka 32-bit yang mungkin diperlukan
         sudo dpkg --add-architecture i386
         sudo apt-get update
-        # Instal dependensi tanpa gcc-aarch64-linux-gnu; cukup binutils untuk assembler dll.
+        # Instal dependensi tanpa g++-multilib dan gcc-aarch64-linux-gnu
         sudo apt-get install -y git ccache automake lzop bison gperf build-essential zip curl \
           zlib1g-dev python3-networkx libxml2-utils bzip2 libbz2-dev libbz2-1.0 \
           libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng \
@@ -34,6 +34,9 @@ jobs:
     - name: Prepare defconfig
       id: defconfig
       run: |
+        # Pastikan direktori tujuan ada
+        mkdir -p arch/arm64/configs
+
         if [ -f kernel_config.gz ]; then
           echo "Menggunakan konfigurasi dari kernel_config.gz"
           gunzip -c kernel_config.gz > arch/arm64/configs/device_defconfig
@@ -43,6 +46,7 @@ jobs:
           cp kernel_config arch/arm64/configs/device_defconfig
           echo "defconfig=device_defconfig" >> $GITHUB_OUTPUT
         else
+          # Fallback: gunakan defconfig dari input atau bawaan
           NAME="${{ github.event.inputs.defconfig_name || 'oppo6765_defconfig' }}"
           if [ -f "arch/arm64/configs/$NAME" ]; then
             echo "Menggunakan defconfig: $NAME"
@@ -57,9 +61,12 @@ jobs:
       run: |
         DEFCONFIG="${{ steps.defconfig.outputs.defconfig }}"
         echo "Memperbaiki $DEFCONFIG ..."
+        # Nonaktifkan modul audio Oplus (penyebab error folder Oplus hilang)
         sed -i 's/CONFIG_SND_SOC_OPLUS_AUDIO=y/# CONFIG_SND_SOC_OPLUS_AUDIO is not set/g' arch/arm64/configs/$DEFCONFIG
+        # Nonaktifkan verifikasi tanda tangan modul (Wi‑Fi/BT error “Required key not available”)
         sed -i 's/CONFIG_MODULE_SIG_FORCE=y/CONFIG_MODULE_SIG_FORCE=n/g' arch/arm64/configs/$DEFCONFIG
         sed -i 's/CONFIG_MODULE_SIG_ALL=y/# CONFIG_MODULE_SIG_ALL is not set/g' arch/arm64/configs/$DEFCONFIG
+        # Tambahkan baris jika belum ada
         grep -q "CONFIG_MODULE_SIG_FORCE" arch/arm64/configs/$DEFCONFIG || echo "CONFIG_MODULE_SIG_FORCE=n" >> arch/arm64/configs/$DEFCONFIG
         grep -q "CONFIG_MODULE_SIG_ALL" arch/arm64/configs/$DEFCONFIG || echo "# CONFIG_MODULE_SIG_ALL is not set" >> arch/arm64/configs/$DEFCONFIG
 
