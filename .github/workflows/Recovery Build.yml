@@ -113,7 +113,7 @@ jobs:
     - name: Build kernel
       run: |
         export PATH="/usr/lib/ccache:$PATH"
-        make ARCH=arm64 $DEFCONFIG
+        make ARCH=arm64 arch/arm64/configs/oppo6765_defconfig
         make -j$(nproc) ARCH=arm64 \
           CROSS_COMPILE=$CROSS_COMPILE \
           CC=$CC \
