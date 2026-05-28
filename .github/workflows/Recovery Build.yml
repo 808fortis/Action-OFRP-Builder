@@ -29,100 +29,71 @@ jobs:
           libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev libgl1-mesa-dev \
           xsltproc unzip device-tree-compiler clang lld flex bison binutils-aarch64-linux-gnu
 
-    - name: Parse build.config.aarch64 (jika ada)
-      id: build_config
+    - name: Set up defconfig
       run: |
+        mkdir -p arch/arm64/configs
+
+        # 1. Cek build.config.aarch64 (jika ada)
         if [ -f build.config.aarch64 ]; then
           echo "::group::Isi build.config.aarch64"
           cat build.config.aarch64
           echo "::endgroup::"
-          
-          # Ambil nilai DEFCONFIG
-          DEFCONFIG_LINE=$(grep -E '^DEFCONFIG=' build.config.aarch64 | head -1)
-          if [ -n "$DEFCONFIG_LINE" ]; then
-            DEFCONFIG=$(echo "$DEFCONFIG_LINE" | cut -d'=' -f2-)
+          DEFCONFIG=$(grep -E '^DEFCONFIG=' build.config.aarch64 | head -1 | cut -d'=' -f2-)
+          if [ -n "$DEFCONFIG" ]; then
             echo "DEFCONFIG dari build.config: $DEFCONFIG"
-            echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
+            echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+            # Ambil toolchain settings dari build.config (jika ada)
+            CROSS=$(grep -E '^CROSS_COMPILE=' build.config.aarch64 | head -1 | cut -d'=' -f2-)
+            CC=$(grep -E '^CC=' build.config.aarch64 | head -1 | cut -d'=' -f2-)
+            LD=$(grep -E '^LD=' build.config.aarch64 | head -1 | cut -d'=' -f2-)
+            echo "CROSS_COMPILE=${CROSS:-aarch64-linux-gnu-}" >> $GITHUB_ENV
+            echo "CC=${CC:-clang}" >> $GITHUB_ENV
+            echo "LD=${LD:-ld.lld}" >> $GITHUB_ENV
+            exit 0
           fi
-          
-          # Ambil CROSS_COMPILE jika ada
-          CROSS_LINE=$(grep -E '^CROSS_COMPILE=' build.config.aarch64 | head -1)
-          if [ -n "$CROSS_LINE" ]; then
-            CROSS=$(echo "$CROSS_LINE" | cut -d'=' -f2-)
-            echo "CROSS_COMPILE dari build.config: $CROSS"
-            echo "cross_compile=$CROSS" >> $GITHUB_OUTPUT
-          else
-            echo "cross_compile=aarch64-linux-gnu-" >> $GITHUB_OUTPUT
-          fi
-          
-          # Ambil CC jika ada
-          CC_LINE=$(grep -E '^CC=' build.config.aarch64 | head -1)
-          if [ -n "$CC_LINE" ]; then
-            CC=$(echo "$CC_LINE" | cut -d'=' -f2-)
-            echo "CC dari build.config: $CC"
-            echo "cc=$CC" >> $GITHUB_OUTPUT
-          else
-            echo "cc=clang" >> $GITHUB_OUTPUT
-          fi
-          
-          # Ambil LD jika ada
-          LD_LINE=$(grep -E '^LD=' build.config.aarch64 | head -1)
-          if [ -n "$LD_LINE" ]; then
-            LD=$(echo "$LD_LINE" | cut -d'=' -f2-)
-            echo "LD dari build.config: $LD"
-            echo "ld=$LD" >> $GITHUB_OUTPUT
-          else
-            echo "ld=ld.lld" >> $GITHUB_OUTPUT
-          fi
-          
-          echo "exists=true" >> $GITHUB_OUTPUT
-        else
-          echo "exists=false" >> $GITHUB_OUTPUT
-          echo "defconfig=${{ github.event.inputs.defconfig_name || 'oppo6765_defconfig' }}" >> $GITHUB_OUTPUT
-          echo "cross_compile=aarch64-linux-gnu-" >> $GITHUB_OUTPUT
-          echo "cc=clang" >> $GITHUB_OUTPUT
-          echo "ld=ld.lld" >> $GITHUB_OUTPUT
         fi
 
-    - name: Prepare defconfig
-      run: |
-        mkdir -p arch/arm64/configs
-        
-        # Kalau build.config sudah memberikan defconfig, kita pastikan file itu ada
-        if [ "${{ steps.build_config.outputs.exists }}" = "true" ]; then
-          DEFCONFIG="${{ steps.build_config.outputs.defconfig }}"
-          if [ -f "arch/arm64/configs/$DEFCONFIG" ]; then
-            echo "Menggunakan defconfig dari build.config: $DEFCONFIG"
-            echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
-          else
-            echo "ERROR: Defconfig $DEFCONFIG tidak ditemukan!"
-            exit 1
-          fi
+        # 2. Cek kernel_config.gz (dari HP yang sudah di-root)
+        if [ -f kernel_config.gz ]; then
+          echo "Menggunakan kernel_config.gz"
+          gunzip -c kernel_config.gz > arch/arm64/configs/device_defconfig
+          echo "DEFCONFIG=device_defconfig" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "LD=ld.lld" >> $GITHUB_ENV
+          exit 0
+        fi
+
+        # 3. Cek kernel_config (teks biasa)
+        if [ -f kernel_config ]; then
+          echo "Menggunakan kernel_config"
+          cp kernel_config arch/arm64/configs/device_defconfig
+          echo "DEFCONFIG=device_defconfig" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "LD=ld.lld" >> $GITHUB_ENV
+          exit 0
+        fi
+
+        # 4. Fallback ke defconfig bawaan (input atau default)
+        NAME="${{ github.event.inputs.defconfig_name || 'oppo6765_defconfig' }}"
+        if [ -f "arch/arm64/configs/$NAME" ]; then
+          echo "DEFCONFIG=$NAME" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "LD=ld.lld" >> $GITHUB_ENV
         else
-          # Fallback ke file upload-an
-          if [ -f kernel_config.gz ]; then
-            echo "Menggunakan kernel_config.gz"
-            gunzip -c kernel_config.gz > arch/arm64/configs/device_defconfig
-            echo "defconfig=device_defconfig" >> $GITHUB_OUTPUT
-          elif [ -f kernel_config ]; then
-            cp kernel_config arch/arm64/configs/device_defconfig
-            echo "defconfig=device_defconfig" >> $GITHUB_OUTPUT
-          else
-            DEFCONFIG="${{ steps.build_config.outputs.defconfig }}"
-            if [ -f "arch/arm64/configs/$DEFCONFIG" ]; then
-              echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
-            else
-              echo "ERROR: Defconfig $DEFCONFIG tidak ditemukan!"
-              exit 1
-            fi
-          fi
+          echo "ERROR: Tidak ada defconfig yang ditemukan!"
+          ls -la arch/arm64/configs/ || true
+          exit 1
         fi
 
     - name: Fix known errors
       run: |
-        DEFCONFIG="${{ steps.prepare.outputs.defconfig }}"
         echo "Memperbaiki $DEFCONFIG ..."
+        # Matikan modul audio Oplus (penyebab error folder Oplus)
         sed -i 's/CONFIG_SND_SOC_OPLUS_AUDIO=y/# CONFIG_SND_SOC_OPLUS_AUDIO is not set/g' arch/arm64/configs/$DEFCONFIG
+        # Matikan verifikasi tanda tangan modul (Wi‑Fi/BT error)
         sed -i 's/CONFIG_MODULE_SIG_FORCE=y/CONFIG_MODULE_SIG_FORCE=n/g' arch/arm64/configs/$DEFCONFIG
         sed -i 's/CONFIG_MODULE_SIG_ALL=y/# CONFIG_MODULE_SIG_ALL is not set/g' arch/arm64/configs/$DEFCONFIG
         grep -q "CONFIG_MODULE_SIG_FORCE" arch/arm64/configs/$DEFCONFIG || echo "CONFIG_MODULE_SIG_FORCE=n" >> arch/arm64/configs/$DEFCONFIG
@@ -131,11 +102,11 @@ jobs:
     - name: Build kernel
       run: |
         export PATH="/usr/lib/ccache:$PATH"
-        make ARCH=arm64 ${{ steps.prepare.outputs.defconfig }}
+        make ARCH=arm64 $DEFCONFIG
         make -j$(nproc) ARCH=arm64 \
-          CROSS_COMPILE=${{ steps.build_config.outputs.cross_compile }} \
-          CC=${{ steps.build_config.outputs.cc }} \
-          LD=${{ steps.build_config.outputs.ld }} \
+          CROSS_COMPILE=$CROSS_COMPILE \
+          CC=$CC \
+          LD=$LD \
           CLANG_TRIPLE=aarch64-linux-gnu-
 
     - name: Upload kernel image
