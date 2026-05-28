@@ -74,7 +74,7 @@ jobs:
           cp kernel_config arch/arm64/configs/device_defconfig
           if [ -s arch/arm64/configs/device_defconfig ]; then
             echo "Menggunakan kernel_config"
-            echo "DEFCONFIG=device_defconfig" >> $GITHUB_ENV
+            echo "DEFCONFIG=arch/arm64/configs/oppo6765_defconfig" >> $GITHUB_ENV
             echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
             echo "CC=clang" >> $GITHUB_ENV
             echo "LD=ld.lld" >> $GITHUB_ENV
