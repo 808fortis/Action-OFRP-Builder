@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       defconfig_name:
-        description: 'Nama file defconfig (abaikan jika build.config.aarch64 ditemukan)'
+        description: 'Nama file defconfig (hanya dipakai jika tidak ada build.config / kernel_config.gz)'
         required: false
         default: 'oppo6765_defconfig'
 
@@ -33,7 +33,7 @@ jobs:
       run: |
         mkdir -p arch/arm64/configs
 
-        # 1. Cek build.config.aarch64 (jika ada)
+        # 1. Cek build.config.aarch64 (resmi dari repositori)
         if [ -f build.config.aarch64 ]; then
           echo "::group::Isi build.config.aarch64"
           cat build.config.aarch64
@@ -42,7 +42,6 @@ jobs:
           if [ -n "$DEFCONFIG" ]; then
             echo "DEFCONFIG dari build.config: $DEFCONFIG"
             echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
-            # Ambil toolchain settings dari build.config (jika ada)
             CROSS=$(grep -E '^CROSS_COMPILE=' build.config.aarch64 | head -1 | cut -d'=' -f2-)
             CC=$(grep -E '^CC=' build.config.aarch64 | head -1 | cut -d'=' -f2-)
             LD=$(grep -E '^LD=' build.config.aarch64 | head -1 | cut -d'=' -f2-)
@@ -53,37 +52,49 @@ jobs:
           fi
         fi
 
-        # 2. Cek kernel_config.gz (dari HP yang sudah di-root)
+        # 2. Cek kernel_config.gz (konfigurasi dari HP yang di-root)
         if [ -f kernel_config.gz ]; then
-          echo "Menggunakan kernel_config.gz"
+          echo "Mencoba ekstrak kernel_config.gz..."
           gunzip -c kernel_config.gz > arch/arm64/configs/device_defconfig
-          echo "DEFCONFIG=device_defconfig" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "CC=clang" >> $GITHUB_ENV
-          echo "LD=ld.lld" >> $GITHUB_ENV
-          exit 0
+          if [ -s arch/arm64/configs/device_defconfig ]; then
+            echo "Berhasil, pakai device_defconfig"
+            echo "DEFCONFIG=device_defconfig" >> $GITHUB_ENV
+            echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "LD=ld.lld" >> $GITHUB_ENV
+            exit 0
+          else
+            echo "Ekstraksi GAGAL. Hapus file kosong dan lanjut fallback."
+            rm -f arch/arm64/configs/device_defconfig
+          fi
         fi
 
         # 3. Cek kernel_config (teks biasa)
         if [ -f kernel_config ]; then
-          echo "Menggunakan kernel_config"
           cp kernel_config arch/arm64/configs/device_defconfig
-          echo "DEFCONFIG=device_defconfig" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "CC=clang" >> $GITHUB_ENV
-          echo "LD=ld.lld" >> $GITHUB_ENV
-          exit 0
+          if [ -s arch/arm64/configs/device_defconfig ]; then
+            echo "Menggunakan kernel_config"
+            echo "DEFCONFIG=device_defconfig" >> $GITHUB_ENV
+            echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "LD=ld.lld" >> $GITHUB_ENV
+            exit 0
+          else
+            echo "File kernel_config kosong, lanjut fallback."
+            rm -f arch/arm64/configs/device_defconfig
+          fi
         fi
 
-        # 4. Fallback ke defconfig bawaan (input atau default)
+        # 4. Fallback ke defconfig dari input atau bawaan (oppo6765_defconfig)
         NAME="${{ github.event.inputs.defconfig_name || 'oppo6765_defconfig' }}"
         if [ -f "arch/arm64/configs/$NAME" ]; then
+          echo "Pakai defconfig fallback: $NAME"
           echo "DEFCONFIG=$NAME" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
           echo "CC=clang" >> $GITHUB_ENV
           echo "LD=ld.lld" >> $GITHUB_ENV
         else
-          echo "ERROR: Tidak ada defconfig yang ditemukan!"
+          echo "ERROR: Tidak ada defconfig yang valid!"
           ls -la arch/arm64/configs/ || true
           exit 1
         fi
@@ -93,7 +104,7 @@ jobs:
         echo "Memperbaiki $DEFCONFIG ..."
         # Matikan modul audio Oplus (penyebab error folder Oplus)
         sed -i 's/CONFIG_SND_SOC_OPLUS_AUDIO=y/# CONFIG_SND_SOC_OPLUS_AUDIO is not set/g' arch/arm64/configs/$DEFCONFIG
-        # Matikan verifikasi tanda tangan modul (Wi‑Fi/BT error)
+        # Matikan verifikasi tanda tangan modul (Wi‑Fi/BT)
         sed -i 's/CONFIG_MODULE_SIG_FORCE=y/CONFIG_MODULE_SIG_FORCE=n/g' arch/arm64/configs/$DEFCONFIG
         sed -i 's/CONFIG_MODULE_SIG_ALL=y/# CONFIG_MODULE_SIG_ALL is not set/g' arch/arm64/configs/$DEFCONFIG
         grep -q "CONFIG_MODULE_SIG_FORCE" arch/arm64/configs/$DEFCONFIG || echo "CONFIG_MODULE_SIG_FORCE=n" >> arch/arm64/configs/$DEFCONFIG
